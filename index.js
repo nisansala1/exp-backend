@@ -38,13 +38,44 @@ app.get("/expenses", (req, res) => {
 });
 
 // Add expense
-app.post("/expenses", (req, res) => {
+app.post("/expenses", async (req, res) => {
   const { title, amount } = req.body;
-  db.run(
-    "INSERT INTO expenses (title, amount) VALUES (?, ?)",
-    [title, amount],
-    () => res.sendStatus(201)
-  );
+
+  const prompt = `
+Categorize this expense and give short advice.
+Expense: ${title}
+Amount: ${amount}
+
+Return JSON:
+{
+  "category": "",
+  "insight": ""
+}
+`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    // Safe JSON parsing
+    let aiResult = { category: "Other", insight: "No insight available" };
+    try {
+      aiResult = JSON.parse(response.choices[0].message.content);
+    } catch (err) {
+      console.error("AI JSON parse failed:", response.choices[0].message.content);
+    }
+
+    db.run(
+      "INSERT INTO expenses (title, amount, category, insight) VALUES (?, ?, ?, ?)",
+      [title, amount, aiResult.category, aiResult.insight],
+      () => res.sendStatus(201)
+    );
+  } catch (err) {
+    console.error("OpenAI request failed:", err);
+    res.status(500).send("AI call failed");
+  }
 });
 
 app.listen(5000, () => {
